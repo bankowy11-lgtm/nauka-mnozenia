@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mistrz Mnożenia</title>
+    <link rel="manifest" id="my-manifest">
+    <script>
+        const myDynamicManifest = {
+            "name": "Mistrz Mnożenia",
+            "short_name": "Mnożenie",
+            "start_url": ".",
+            "display": "standalone",
+            "background_color": "#f0f4f8",
+            "theme_color": "#1e60ad",
+            "icons": [{
+                "src": "https://cdn-icons-png.flaticon.com/512/3771/3771278.png",
+                "sizes": "512x512",
+                "type": "image/png"
+            }]
+        };
+        const stringManifest = JSON.stringify(myDynamicManifest);
+        const blob = new Blob([stringManifest], {type: 'application/json'});
+        const manifestURL = URL.createObjectURL(blob);
+        document.querySelector('#my-manifest').setAttribute('href', manifestURL);
+    </script>
+
+    <style>
+        :root { --blue: #1e60ad; --red: #d00000; --green: #28a745; --bg: #f0f4f8; }
+        body { 
+            font-family: 'Segoe UI', sans-serif; background: var(--bg); 
+            display: flex; flex-direction: column; align-items: center; 
+            padding: 20px; margin: 0; min-height: 100vh; touch-action: manipulation; 
+        }
+        .stats-bar { 
+            display: flex; gap: 30px; margin-bottom: 20px; background: white; 
+            padding: 15px 30px; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            font-size: 1.5rem; font-weight: bold;
+        }
+        .menu { margin-bottom: 20px; display: flex; gap: 10px; }
+        button { 
+            padding: 20px 40px; border: none; border-radius: 15px; 
+            font-weight: bold; color: white; font-size: 1.4rem; cursor: pointer;
+            box-shadow: 0 5px 0 rgba(0,0,0,0.2);
+        }
+        button:active { transform: translateY(3px); box-shadow: none; }
+        .btn-easy { background: #5cb85c; } .btn-med { background: #f0ad4e; } .btn-hard { background: #d9534f; }
+        
+        #game-container { width: 100%; display: flex; justify-content: center; }
+        .board { 
+            background: white; padding: 40px; border-radius: 25px; 
+            display: grid; gap: 10px; box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+        }
+        input { 
+            width: 80px; height: 100px; text-align: center; font-size: 3.5rem; 
+            font-weight: bold; border: 3px solid #ddd; border-radius: 12px; outline: none;
+        }
+        input:focus { border-color: var(--blue); background: #f0f7ff; }
+        .carry-input { 
+            width: 55px !important; height: 60px !important; font-size: 2rem !important; 
+            border-style: dotted !important; color: #888; margin-bottom: 10px; 
+        }
+        .line { grid-column: 1 / -1; height: 6px; background: #333; margin: 10px 0; border-radius: 5px; }
+        .static { font-size: 3.5rem; font-weight: bold; text-align: center; width: 80px; line-height: 100px; }
+        .correct { background-color: #d4edda !important; border-color: var(--green) !important; }
+        .wrong { background-color: #f8d7da !important; border-color: var(--red) !important; animation: shake 0.2s; }
+        @keyframes shake { 0%, 100% {transform: translateX(0);} 25% {transform: translateX(-6px);} 75% {transform: translateX(6px);} }
+        #msg { margin-top: 20px; font-size: 2.5rem; font-weight: bold; color: var(--green); }
+    </style>
+</head>
+<body>
+
+    <div class="stats-bar">
+        <div>Wynik: <span id="score">0</span></div>
+        <div>Czas: <span id="timer">0.0</span>s</div>
+    </div>
+
+    <div class="menu">
+        <button class="btn-easy" onclick="start(event, 'easy')">Łatwy</button>
+        <button class="btn-med" onclick="start(event, 'medium')">Średni</button>
+        <button class="btn-hard" onclick="start(event, 'hard')">Trudny</button>
+    </div>
+
+    <div id="game-container"></div>
+    <div id="msg"></div>
+
+<script>
+let audioCtx = null;
+let score = 0;
+let timerInterval, startTime;
+
+function initAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
+function playTone(freq, type, duration) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + duration);
+}
+
+function start(e, lvl) {
+    initAudio();
+    const config = { easy: [11, 999, 2, 9], medium: [101, 999, 11, 99], hard: [1001, 9999, 11, 999] };
+    const [min1, max1, min2, max2] = config[lvl];
+    const n1 = Math.floor(Math.random() * (max1 - min1 + 1)) + min1;
+    const n2 = Math.floor(Math.random() * (max2 - min2 + 1)) + min2;
+    
+    clearInterval(timerInterval);
+    document.getElementById('msg').innerText = "";
+    const container = document.getElementById('game-container');
+    container.innerHTML = "";
+
+    const s2 = n2.toString();
+    const finalAns = n1 * n2;
+    const cols = finalAns.toString().length + 1;
+
+    const board = document.createElement('div');
+    board.className = 'board';
+    board.style.gridTemplateColumns = `repeat(${cols}, auto)`;
+
+    // Carries
+    for(let i=0; i<cols; i++) {
+        const ci = document.createElement('input'); ci.className = 'carry-input'; ci.type = 'number';
+        board.appendChild(ci);
+    }
+
+    // Numbers
+    drawStatic(board, n1.toString(), cols, '');
+    drawStatic(board, n2.toString(), cols, '·');
+    board.appendChild(line());
+
+    if (s2.length > 1) {
+        const ps = s2.split('').reverse().map((d, i) => (n1 * parseInt(d)) * Math.pow(10, i));
+        ps.forEach((v, idx) => drawInput(board, v.toString(), cols, idx === 0 ? 'p1' : 'p2', idx === ps.length-1 ? '+' : '', idx));
+        board.appendChild(line());
+        drawInput(board, finalAns.toString(), cols, 'res', '', 0, true);
+    } else {
+        drawInput(board, finalAns.toString(), cols, 'res', '', 0, true);
+    }
+
+    container.appendChild(board);
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+        document.getElementById('timer').innerText = ((Date.now() - startTime)/1000).toFixed(1);
+    }, 100);
+
+    const inputs = Array.from(document.querySelectorAll('.user-digit'));
+    inputs.forEach(inp => {
+        inp.addEventListener('input', (event) => {
+            const v = event.target.value.slice(-1);
+            event.target.value = v;
+            if (v === inp.dataset.ans) {
+                playTone(880, 'sine', 0.1);
+                inp.classList.add('correct');
+                const rowClass = Array.from(inp.classList).find(c => ['p1','p2','res'].includes(c));
+                const row = Array.from(document.querySelectorAll('.'+rowClass+'.user-digit'));
+                const cur = row.indexOf(inp);
+                if (cur > 0) row[cur-1].focus();
+                else {
+                    document.querySelectorAll('.carry-input').forEach(c => c.value = "");
+                    const nextC = ['p2', 'res'][['p1','p2'].indexOf(rowClass)];
+                    if (nextC) {
+                        const nextR = Array.from(document.querySelectorAll('.'+nextC+'.user-digit'));
+                        if (nextR.length) setTimeout(() => nextR[nextR.length-1].focus(), 100);
+                    }
+                }
+            } else if (v !== "") {
+                playTone(200, 'square', 0.2);
+                inp.classList.add('wrong');
+                setTimeout(() => { inp.value = ""; inp.classList.remove('wrong'); }, 600);
+            }
+            if (inputs.every(i => i.value === i.dataset.ans)) {
+                clearInterval(timerInterval);
+                score += 100; document.getElementById('score').innerText = score;
+                document.getElementById('msg').innerText = "🏆 BRAWO!";
+            }
+        });
+    });
+    const firstRow = document.querySelectorAll('.p1.user-digit, .res.user-digit');
+    firstRow[firstRow.length-1].focus();
+}
+
+function drawStatic(p, t, c, s) {
+    const start = c - t.length;
+    for(let i=0; i<c; i++){
+        const d = document.createElement('div'); d.className = 'static';
+        if(i===0 && s) d.innerText = s; else if(i>=start) d.innerText = t[i-start];
+        p.appendChild(d);
+    }
+}
+
+function drawInput(p, v, c, cls, s, off, isF=false) {
+    const start = c - v.length;
+    for(let i=0; i<c; i++){
+        if(i===0 && s) {
+            const d = document.createElement('div'); d.className = 'static '+cls; d.innerText = s; p.appendChild(d);
+        } else if(i >= start && i < start + v.length) {
+            if(i >= (c-off) && off>0 && !isF) {
+                const d = document.createElement('div'); d.className = 'static'; d.innerText = "0"; d.style.color="#ccc"; p.appendChild(d);
+            } else {
+                const inp = document.createElement('input'); inp.dataset.ans = v[start+v.length-1-(i-start)]; // Ten błąd naprawiony poniżej
+                inp.dataset.ans = v[i-start];
+                inp.classList.add(cls, 'user-digit'); inp.type = 'number'; inp.inputMode = 'numeric';
+                p.appendChild(inp);
+            }
+        } else p.appendChild(document.createElement('div'));
+    }
+}
+
+function line() { const l = document.createElement('div'); l.className = 'line'; return l; }
+
+// Rejestracja SW w locie
+const swCode = `self.addEventListener('fetch', function(event) { event.respondWith(fetch(event.request)); });`;
+const swBlob = new Blob([swCode], {type: 'text/javascript'});
+const swUrl = URL.createObjectURL(swBlob);
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register(swUrl); }
+</script>
+</body>
+</html>
